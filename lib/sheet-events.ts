@@ -3,15 +3,21 @@ import { parseCSV } from "./csv";
 export const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1_iUBANkDBxQa_xgnv6l0zoBAx5U3YhTZ60fZrQ2u38A/export?format=csv&gid=1192187993";
 
+/** スプレッドシート1行・UI・Webhookで共通（欠損なし） */
 export type EventCard = {
-  eventId: string;
+  event_id: string;
   title: string;
   date: string;
-  startTimeDisplay: string;
-  venue: string;
-  description: string;
-  imageUrl: string;
+  start_time: string;
+  end_time: string;
+  venue_name: string;
+  venue_address: string;
+  price: string;
+  image_url: string;
 };
+
+/** selected_events の1要素（n8n向け） */
+export type SelectedEventPayload = EventCard;
 
 function headerIndex(headers: string[], name: string): number {
   const i = headers.indexOf(name);
@@ -27,38 +33,61 @@ export function parseParticipationFeeYen(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function formatStartTimeForDisplay(raw: string): string {
+/** 「13時00分00秒」→「13:00」（表示・送信共通） */
+export function formatSheetTimeToHHmm(raw: string): string {
   const m = raw.match(/(\d{1,2})時(\d{1,2})分/);
   if (m) {
     const h = m[1].padStart(2, "0");
     const min = m[2].padStart(2, "0");
     return `${h}:${min}`;
   }
-  return raw.trim() || "—";
+  const t = raw.trim();
+  return t.length > 0 ? t : "—";
 }
 
 function rowToEvent(
   row: string[],
   idx: Record<string, number>,
 ): EventCard | null {
-  const eventId = row[idx["イベントID"]]?.trim();
+  const event_id = row[idx["イベントID"]]?.trim();
   const title = row[idx["イベント名"]]?.trim();
   const date = row[idx["開催日"]]?.trim();
-  if (!eventId || !title || !date) return null;
+  if (!event_id || !title || !date) return null;
 
   const feeRaw = row[idx["参加費"]] ?? "";
   const yen = parseParticipationFeeYen(feeRaw);
   if (yen !== 1500) return null;
 
   const startRaw = row[idx["開始時刻"]] ?? "";
+  const endRaw = row[idx["終了時刻"]] ?? "";
+  const start_time = formatSheetTimeToHHmm(startRaw);
+  const end_time = formatSheetTimeToHHmm(endRaw);
+  const venue_name = (row[idx["会場名"]] ?? "").trim();
+  const venue_address = (row[idx["会場住所"]] ?? "").trim();
+  const price = feeRaw.trim();
+  const image_url = (row[idx["画像URL"]] ?? "").trim();
+
+  if (
+    !venue_name ||
+    !venue_address ||
+    !price ||
+    !image_url ||
+    start_time === "—" ||
+    end_time === "—"
+  ) {
+    return null;
+  }
+
   return {
-    eventId,
+    event_id,
     title,
     date,
-    startTimeDisplay: formatStartTimeForDisplay(startRaw),
-    venue: (row[idx["会場名"]] ?? "").trim() || "—",
-    description: (row[idx["イベント説明"]] ?? "").trim() || "",
-    imageUrl: (row[idx["画像URL"]] ?? "").trim(),
+    start_time,
+    end_time,
+    venue_name,
+    venue_address,
+    price,
+    image_url,
   };
 }
 
@@ -73,9 +102,10 @@ export function parseEventsFromSheetCsv(csvText: string): EventCard[] {
     イベント名: headerIndex(headers, "イベント名"),
     開催日: headerIndex(headers, "開催日"),
     開始時刻: headerIndex(headers, "開始時刻"),
+    終了時刻: headerIndex(headers, "終了時刻"),
     会場名: headerIndex(headers, "会場名"),
+    会場住所: headerIndex(headers, "会場住所"),
     参加費: headerIndex(headers, "参加費"),
-    イベント説明: headerIndex(headers, "イベント説明"),
     画像URL: headerIndex(headers, "画像URL"),
   };
 
@@ -91,14 +121,15 @@ export function parseEventsFromSheetCsv(csvText: string): EventCard[] {
 
 export const MOCK_EVENTS_1500: EventCard[] = [
   {
-    eventId: "ENV036",
+    event_id: "ENV036",
     title: "売らない交流会|協力者が増える60分✨",
     date: "2026/04/03",
-    startTimeDisplay: "13:00",
-    venue: "ふれあい貸し会議室 東京A",
-    description:
-      "売らない交流会✨その場で次の約束まで進む設計。雑談〜仕事までOK☕",
-    imageUrl:
+    start_time: "13:00",
+    end_time: "14:00",
+    venue_name: "ふれあい貸し会議室 東京A",
+    venue_address: "東京都中央区八重洲2-8-10",
+    price: "¥1,500",
+    image_url:
       "https://res.cloudinary.com/deyc8gz2k/image/upload/v1774973106/wxvex9bl4pr80zlgp8ed.jpg",
   },
 ];

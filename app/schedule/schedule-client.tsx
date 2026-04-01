@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { EventCard } from "@/lib/sheet-events";
+import type { EventCard, SelectedEventPayload } from "@/lib/sheet-events";
 
 const MAX = 3;
 
@@ -14,8 +14,6 @@ type Props = {
   to: string;
   toName: string;
 };
-
-type SelectedPayload = { event_id: string; date: string; title: string };
 
 export function ScheduleClient({
   matchId,
@@ -62,29 +60,25 @@ export function ScheduleClient({
     (ev: EventCard) => {
       setSubmitError(null);
       setLimitError(false);
-      if (selectedSet.has(ev.eventId)) {
-        setSelectedIds((prev) => prev.filter((id) => id !== ev.eventId));
+      if (selectedSet.has(ev.event_id)) {
+        setSelectedIds((prev) => prev.filter((id) => id !== ev.event_id));
         return;
       }
       if (selectedIds.length >= MAX) {
         setLimitError(true);
         return;
       }
-      setSelectedIds((prev) => [...prev, ev.eventId]);
+      setSelectedIds((prev) => [...prev, ev.event_id]);
     },
     [selectedIds.length, selectedSet],
   );
 
-  const selectedEventsPayload: SelectedPayload[] = useMemo(() => {
-    const byId = new Map(events.map((e) => [e.eventId, e]));
+  const selectedEventsPayload: SelectedEventPayload[] = useMemo(() => {
+    const byId = new Map(events.map((e) => [e.event_id, e]));
     return selectedIds
       .map((id) => byId.get(id))
       .filter(Boolean)
-      .map((e) => ({
-        event_id: e!.eventId,
-        date: e!.date,
-        title: e!.title,
-      }));
+      .map((e) => ({ ...e! }));
   }, [events, selectedIds]);
 
   const submit = async () => {
@@ -109,11 +103,15 @@ export function ScheduleClient({
         }),
       });
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
         setSubmitError(
           j.error === "webhook_failed"
             ? "送信に失敗しました。時間をおいて再度お試しください。"
-            : "送信に失敗しました。通信状況をご確認ください。",
+            : j.error === "incomplete_event_data"
+              ? "イベント情報が不完全です。ページを再読み込みしてお試しください。"
+              : "送信に失敗しました。通信状況をご確認ください。",
         );
         return;
       }
@@ -231,9 +229,9 @@ export function ScheduleClient({
         ) : (
           <ul className="flex flex-col gap-4">
             {events.map((ev) => {
-              const checked = selectedSet.has(ev.eventId);
+              const checked = selectedSet.has(ev.event_id);
               return (
-                <li key={ev.eventId}>
+                <li key={ev.event_id}>
                   <label
                     className={`group block cursor-pointer overflow-hidden rounded-2xl border-2 bg-white shadow-md transition-all ${
                       checked
@@ -242,9 +240,9 @@ export function ScheduleClient({
                     }`}
                   >
                     <div className="relative aspect-[16/10] w-full bg-slate-100">
-                      {ev.imageUrl ? (
+                      {ev.image_url ? (
                         <Image
-                          src={ev.imageUrl}
+                          src={ev.image_url}
                           alt=""
                           fill
                           className="object-cover"
@@ -258,14 +256,14 @@ export function ScheduleClient({
                           onChange={() => toggle(ev)}
                           className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                           aria-label={`${ev.title}を候補に追加`}
-                          aria-describedby={`desc-${ev.eventId}`}
+                          aria-describedby={`meta-${ev.event_id}`}
                         />
                         <span className="text-xs font-semibold text-slate-800">
                           候補に追加
                         </span>
                       </div>
                     </div>
-                    <div className="space-y-2 p-4">
+                    <div className="space-y-3 p-4" id={`meta-${ev.event_id}`}>
                       <h2 className="text-base font-bold leading-snug text-slate-900">
                         {ev.title}
                       </h2>
@@ -274,19 +272,21 @@ export function ScheduleClient({
                           {ev.date}
                         </span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
-                          開始 {ev.startTimeDisplay}
+                          {ev.start_time}〜{ev.end_time}
                         </span>
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-800">
-                          ¥1,500
+                          {ev.price}
                         </span>
                       </div>
-                      <p className="text-xs font-medium text-slate-500">{ev.venue}</p>
-                      <p
-                        id={`desc-${ev.eventId}`}
-                        className="text-sm leading-relaxed text-slate-600 line-clamp-4"
-                      >
-                        {ev.description}
-                      </p>
+                      <div className="space-y-1 text-sm text-slate-600">
+                        <p>
+                          <span className="font-medium text-slate-500">会場</span>{" "}
+                          <span className="text-slate-800">{ev.venue_name}</span>
+                        </p>
+                        <p className="text-xs leading-relaxed text-slate-500">
+                          {ev.venue_address}
+                        </p>
+                      </div>
                     </div>
                   </label>
                 </li>
@@ -301,7 +301,7 @@ export function ScheduleClient({
           <button
             type="button"
             onClick={submit}
-            disabled={submitting || loading}
+            disabled={submitting || loading || selectedIds.length === 0}
             className="flex w-full items-center justify-center rounded-2xl bg-emerald-600 py-4 text-base font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "送信中…" : "候補日を送信する"}
